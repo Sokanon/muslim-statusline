@@ -41,7 +41,7 @@ if [ -z "$lat" ] || [ -z "$lon" ]; then
 fi
 
 # ── Prayer timings (Aladhan, cached per day; fetch throttled to 1/min on failure) ──
-key=$(date +%F)
+key="$(date +%F)-m$METHOD"
 TIM="$CACHE/timings-$key.json"
 STAMP="$CACHE/fetch-attempt"
 if [ ! -s "$TIM" ] && [ -n "$lat" ] && [ -n "$lon" ]; then
@@ -115,6 +115,17 @@ if [ -s "$TIM" ]; then
   else
     prayer_line="${green}🕌 ${label} ${next_t}${reset} ${dim}(${cd_str})${reset}"
   fi
+fi
+
+# ── Embed mode: single line (prayer · hijri · dhikr), no session info ──
+# For composing with an existing statusline:  echo "$input" | MS_LINE_ONLY=1 bash muslim.sh
+if [ -n "$MS_LINE_ONLY" ]; then
+  out=""
+  [ -n "$prayer_line" ] && out="$prayer_line"
+  [ -n "$hijri" ] && { [ -n "$out" ] && out+="$sep"; out+="${gold}☪️ ${hijri}${reset}"; }
+  [ -n "$out" ] && out+="$sep"; out+="${teal}📿 ${dhikr}${reset}"
+  printf "%b" "$out"
+  exit 0
 fi
 
 # ── Session info ──

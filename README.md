@@ -40,6 +40,18 @@ Set these in the `env` block of `~/.claude/settings.json` (or export them):
 
 Note: countdowns use your machine's clock, so your system timezone should match your physical location. If you're on a VPN, set `PRAYER_LAT`/`PRAYER_LON` manually.
 
+## Composing with an existing statusline
+
+Already have a statusline you like? `MS_LINE_ONLY=1` outputs just one line (prayer · hijri · dhikr) so you can stack it on top of yours:
+
+```bash
+#!/usr/bin/env bash
+input=$(cat)
+prayer=$(printf '%s' "$input" | MS_LINE_ONLY=1 bash ~/.claude/statuslines/muslim.sh)
+base=$(printf '%s' "$input" | bash ~/.claude/your-statusline.sh)
+printf '%s\n%s' "$prayer" "$base"
+```
+
 ## Cache
 
 Lives in `~/.cache/muslim-statusline/`. Delete it to force a refresh (e.g. after traveling).
