@@ -32,7 +32,8 @@ if [ -z "$lat" ] || [ -z "$lon" ]; then
   [ -s "$LOC" ] && loc_age=$(( $(date +%s) - $(stat -c %Y "$LOC" 2>/dev/null || stat -f %m "$LOC") ))
   if [ "$loc_age" -gt 604800 ]; then
     resp=$(curl -s --max-time 3 "http://ip-api.com/json?fields=status,city,lat,lon" 2>/dev/null)
-    echo "$resp" | jq -e '.status=="success"' >/dev/null 2>&1 && echo "$resp" > "$LOC"
+    # jq 1.6 bug: -e exits 0 on empty input, so guard against an empty response
+    [ -n "$resp" ] && echo "$resp" | jq -e '.status=="success"' >/dev/null 2>&1 && echo "$resp" > "$LOC"
   fi
   if [ -s "$LOC" ]; then
     lat=$(jq -r '.lat' "$LOC"); lon=$(jq -r '.lon' "$LOC")
@@ -44,13 +45,16 @@ fi
 key="$(date +%F)-m$METHOD"
 TIM="$CACHE/timings-$key.json"
 STAMP="$CACHE/fetch-attempt"
+# self-heal: a cache file that doesn't parse poisons the whole day — drop it so it refetches
+# (check the extracted value, not jq's exit code: jq 1.6 -e exits 0 on empty/whitespace input)
+[ -s "$TIM" ] && [ -z "$(jq -r '.data.timings.Fajr // empty' "$TIM" 2>/dev/null)" ] && rm -f "$TIM"
 if [ ! -s "$TIM" ] && [ -n "$lat" ] && [ -n "$lon" ]; then
   stamp_age=999999
   [ -f "$STAMP" ] && stamp_age=$(( $(date +%s) - $(stat -c %Y "$STAMP" 2>/dev/null || stat -f %m "$STAMP") ))
   if [ "$stamp_age" -ge 60 ]; then
     touch "$STAMP"
     resp=$(curl -s --max-time 4 "https://api.aladhan.com/v1/timings/$(date +%d-%m-%Y)?latitude=$lat&longitude=$lon&method=$METHOD" 2>/dev/null)
-    if echo "$resp" | jq -e '.data.timings.Fajr' >/dev/null 2>&1; then
+    if [ -n "$resp" ] && echo "$resp" | jq -e '.data.timings.Fajr' >/dev/null 2>&1; then
       echo "$resp" > "$TIM"
       find "$CACHE" -name 'timings-*.json' ! -name "timings-$key.json" -delete 2>/dev/null
     fi
