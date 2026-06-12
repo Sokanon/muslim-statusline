@@ -37,6 +37,7 @@ Set these in the `env` block of `~/.claude/settings.json` (or export them):
 | `PRAYER_METHOD` | `3` (Muslim World League) | `5` = Egyptian (fits North Africa), `4` = Umm al-Qura, `2` = ISNA — [full list](https://aladhan.com/calculation-methods) |
 | `PRAYER_LAT` / `PRAYER_LON` | auto via IP | set if IP geolocation is off (VPN, datacenter IP) |
 | `PRAYER_CITY` | auto via IP | display name only |
+| `MS_NO_HIJRI` | unset | set to `1` to hide the hijri date (Ramadan detection still works) |
 
 Note: countdowns use your machine's clock, so your system timezone should match your physical location. If you're on a VPN, set `PRAYER_LAT`/`PRAYER_LON` manually.
 

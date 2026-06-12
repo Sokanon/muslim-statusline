@@ -8,6 +8,7 @@
 #   location: ip-api.com (cached 7 days)        override: PRAYER_LAT / PRAYER_LON / PRAYER_CITY
 #   timings:  api.aladhan.com (cached daily)    method:   PRAYER_METHOD (default 3 = MWL; 5 = Egyptian, fits North Africa)
 # Test overrides: MS_NOW="HH:MM" fakes the clock, MS_HIJRI_MONTH=9 fakes Ramadan.
+# Display: MS_NO_HIJRI=1 hides the hijri date (Ramadan detection still works).
 
 input=$(cat)
 command -v jq >/dev/null 2>&1 || { printf "☪️ statusline needs jq"; exit 0; }
@@ -126,7 +127,7 @@ fi
 if [ -n "$MS_LINE_ONLY" ]; then
   out=""
   [ -n "$prayer_line" ] && out="$prayer_line"
-  [ -n "$hijri" ] && { [ -n "$out" ] && out+="$sep"; out+="${gold}☪️ ${hijri}${reset}"; }
+  [ -n "$hijri" ] && [ -z "$MS_NO_HIJRI" ] && { [ -n "$out" ] && out+="$sep"; out+="${gold}☪️ ${hijri}${reset}"; }
   [ -n "$out" ] && out+="$sep"; out+="${teal}📿 ${dhikr}${reset}"
   printf "%b" "$out"
   exit 0
@@ -140,7 +141,7 @@ branch=$(git -C "${cwd:-.}" rev-parse --abbrev-ref HEAD 2>/dev/null)
 
 line1="${white}${model}${reset}"
 [ -n "$dir" ] && { line1+="${sep}${teal}${dir}${reset}"; [ -n "$branch" ] && line1+="${dim}@${reset}${teal}${branch}${reset}"; }
-[ -n "$hijri" ] && line1+="${sep}${gold}☪️ ${hijri}${reset}"
+[ -n "$hijri" ] && [ -z "$MS_NO_HIJRI" ] && line1+="${sep}${gold}☪️ ${hijri}${reset}"
 [ -n "$city" ] && line1+="${sep}${dim}${city}${reset}"
 
 if [ -n "$prayer_line" ]; then
