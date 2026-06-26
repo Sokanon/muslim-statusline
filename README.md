@@ -1,20 +1,25 @@
 # ☪️ muslim-statusline
 
-Prayer times, hijri date, and rotating dhikr in your Claude Code statusline.
+Prayer times and dhikr stacked on a usage statusline (context, cost, plan limits) for Claude Code — one script, three lines.
 
 ```
-Opus · my-project@main · ☪️ 25 Dhū al-Ḥijjah 1447 · Benghazi
-🕌 Asr 16:20 (in 50m) · 📿 سبحان الله وبحمده — SubhanAllahi wa bihamdihi
+🕌 Asr 16:20 (in 50m) · ☪️ 25 Dhū al-Ḥijjah 1447 · 📿 سبحان الله وبحمده — SubhanAllahi wa bihamdihi
+Opus 4.8 | my-project@main (+469 -25)
+ctx 47k/1.0m (5%) | cost $1.23 | 5h 9% | 7d 5% | extra $0.00/$200.00
 ```
 
 ## What it does
 
+**Line 1 — faith:**
+
 - **Next prayer with countdown** — and for 20 minutes after the adhan: `🤲 Asr time — go pray`
 - **Jumu'ah** — Friday's Dhuhr is labeled `Jumu'ah 🕌`
 - **Ramadan mode** — automatic during the hijri month: iftar countdown through the day, suhoor deadline before Fajr
-- **Hijri date** and your city
+- **Hijri date** (hide with `MS_NO_HIJRI=1`)
 - **Dhikr** — rotates every 30 minutes through 10 adhkar (Arabic + transliteration)
 - Works offline once cached: location is fetched weekly ([ip-api.com](http://ip-api.com)), prayer times once per day ([Aladhan API](https://aladhan.com/prayer-times-api)). No API keys. If the network is down, dhikr still shows.
+
+**Lines 2–3 — usage:** model · repo@branch with diff stats, then context window, session cost, and your 5h / 7d / extra-usage limits (cached 60s from the Claude OAuth usage API). This half is adapted from [claude-code-statusline](https://github.com/aleksander-dytko/claude-code-statusline) by Aleksander Dytko (MIT) and folded into the same script. Set `STATUSLINE_SHOW_*=false` to hide any segment — see the config block at the top of `statusline.sh`.
 
 ## Install
 

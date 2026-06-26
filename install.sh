@@ -23,7 +23,7 @@ else
 fi
 
 echo "☪️ Installed. Preview:"
-echo '{"model":{"display_name":"Claude"},"cwd":"'"$PWD"'"}' | bash "$HOME/.claude/statuslines/muslim.sh"
+echo '{"model":{"display_name":"Claude"},"cwd":"'"$PWD"'","context_window":{"context_window_size":1000000,"current_usage":{"input_tokens":5000,"cache_read_input_tokens":40000}},"cost":{"total_cost_usd":0}}' | bash "$HOME/.claude/statuslines/muslim.sh"
 echo
 echo "Restart Claude Code (or open a new session) to see it."
-echo "Optional: set PRAYER_METHOD / PRAYER_LAT / PRAYER_LON / PRAYER_CITY (see README)."
+echo "Optional: set PRAYER_METHOD / PRAYER_LAT / PRAYER_LON / PRAYER_CITY / MS_NO_HIJRI (see README)."
