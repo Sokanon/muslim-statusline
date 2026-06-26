@@ -9,14 +9,37 @@ STAMP=$(date +%Y-%m-%d-%H%M%S)
 command -v jq >/dev/null 2>&1 || { echo "❌ jq is required (brew install jq / sudo apt install jq)"; exit 1; }
 command -v curl >/dev/null 2>&1 || { echo "❌ curl is required"; exit 1; }
 
+DEST="$HOME/.claude/statuslines/muslim.sh"
 mkdir -p "$HOME/.claude/statuslines"
-cp "$HERE/statusline.sh" "$HOME/.claude/statuslines/muslim.sh"
-chmod +x "$HOME/.claude/statuslines/muslim.sh"
+
+# ── Back up whatever statusline they run today, before we replace it ──
+# 1. An existing install at our destination.
+if [ -f "$DEST" ]; then
+  cp "$DEST" "$DEST.bak-$STAMP"
+  echo "Backed up existing $DEST → $DEST.bak-$STAMP"
+fi
+# 2. Best-effort: the script their current statusLine command points to (if any).
+if [ -f "$SETTINGS" ]; then
+  prev_cmd=$(jq -r '.statusLine.command // empty' "$SETTINGS" 2>/dev/null)
+  for tok in $prev_cmd; do
+    p="${tok/#\~/$HOME}"                 # expand a leading ~
+    [ "${p#\$HOME}" != "$p" ] && p="${p/\$HOME/$HOME}"
+    if [ -f "$p" ] && [ "$p" != "$DEST" ]; then
+      cp "$p" "$p.bak-$STAMP"
+      echo "Backed up current statusline $p → $p.bak-$STAMP"
+      break
+    fi
+  done
+fi
+
+# ── Install the full self-contained script ──
+cp "$HERE/statusline.sh" "$DEST"
+chmod +x "$DEST"
 
 if [ -f "$SETTINGS" ]; then
   cp "$SETTINGS" "$SETTINGS.bak-$STAMP"
   jq '.statusLine = {"type":"command","command":"bash ~/.claude/statuslines/muslim.sh"}' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
-  echo "Previous settings backed up to $SETTINGS.bak-$STAMP"
+  echo "Backed up settings → $SETTINGS.bak-$STAMP"
 else
   mkdir -p "$HOME/.claude"
   echo '{"statusLine":{"type":"command","command":"bash ~/.claude/statuslines/muslim.sh"}}' > "$SETTINGS"

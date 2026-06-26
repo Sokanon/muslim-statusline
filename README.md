@@ -31,6 +31,8 @@ bash install.sh
 
 Or tell Claude Code: *"Clone https://github.com/Sokanon/muslim-statusline and run its install.sh"*
 
+The installer drops a single self-contained `~/.claude/statuslines/muslim.sh` and points your statusline at it. It backs up anything it would replace first — your `settings.json` and whatever statusline script you currently run — to timestamped `.bak-<date>` files, so you can always restore.
+
 Requirements: `jq`, `curl`, GNU date (on macOS: `brew install coreutils`).
 
 ## Configuration (optional)
