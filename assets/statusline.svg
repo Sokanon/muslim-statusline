@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="182" viewBox="0 0 980 182" font-family="ui-monospace, SFMono-Regular, 'DejaVu Sans Mono', Menlo, Consolas, monospace" font-size="15">
+  <defs>
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="120%">
+      <feDropShadow dx="0" dy="6" stdDeviation="12" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- window -->
+  <rect x="10" y="8" width="960" height="166" rx="11" fill="#0d1117" stroke="#30363d" stroke-width="1" filter="url(#shadow)"/>
+
+  <!-- title bar -->
+  <circle cx="34" cy="32" r="6" fill="#ff5f56"/>
+  <circle cx="56" cy="32" r="6" fill="#ffbd2e"/>
+  <circle cx="78" cy="32" r="6" fill="#27c93f"/>
+  <text x="490" y="37" text-anchor="middle" fill="#dcdcdc" fill-opacity="0.4" font-size="13">claude code — statusline</text>
+  <line x1="11" y1="56" x2="969" y2="56" stroke="#30363d" stroke-width="1"/>
+
+  <!-- line 1: prayer · dhikr -->
+  <text x="28" y="88" xml:space="preserve"><tspan fill="#78c88c">🕌 Maghrib 19:50 </tspan><tspan fill="#dcdcdc" fill-opacity="0.45">(in 2h 25m) · </tspan><tspan fill="#64bec8">📿 سبحان الله وبحمده — SubhanAllahi wa bihamdihi</tspan></text>
+
+  <!-- line 2: model | repo@branch (+adds -dels) -->
+  <text x="28" y="120" xml:space="preserve"><tspan fill="#0099ff">Opus 4.8 </tspan><tspan fill="#dcdcdc" fill-opacity="0.45">| </tspan><tspan fill="#2e9599">my-project</tspan><tspan fill="#dcdcdc" fill-opacity="0.45">@</tspan><tspan fill="#00a000">master </tspan><tspan fill="#dcdcdc" fill-opacity="0.45">(</tspan><tspan fill="#00a000">+469 </tspan><tspan fill="#ff5555">-25</tspan><tspan fill="#dcdcdc" fill-opacity="0.45">)</tspan></text>
+
+  <!-- line 3: ctx | cost | 5h | 7d | extra -->
+  <text x="28" y="152" xml:space="preserve"><tspan fill="#dcdcdc">ctx </tspan><tspan fill="#ffb055">45k/1.0m </tspan><tspan fill="#dcdcdc" fill-opacity="0.45">(</tspan><tspan fill="#00a000">4%</tspan><tspan fill="#dcdcdc" fill-opacity="0.45">) | </tspan><tspan fill="#dcdcdc">cost $1.23 </tspan><tspan fill="#dcdcdc" fill-opacity="0.45">| </tspan><tspan fill="#dcdcdc">5h </tspan><tspan fill="#00a000">9% </tspan><tspan fill="#dcdcdc" fill-opacity="0.45">| </tspan><tspan fill="#dcdcdc">7d </tspan><tspan fill="#00a000">5% </tspan><tspan fill="#dcdcdc" fill-opacity="0.45">| </tspan><tspan fill="#dcdcdc">extra </tspan><tspan fill="#00a000">$0.00/$200.00</tspan></text>
+</svg>

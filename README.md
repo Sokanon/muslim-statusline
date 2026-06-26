@@ -1,12 +1,10 @@
 # ☪️ muslim-statusline
 
-Prayer times and dhikr stacked on a usage statusline (context, cost, plan limits) for Claude Code — one script, three lines.
+<p align="center">
+  <img src="assets/statusline.svg" alt="muslim-statusline: prayer · dhikr on top, then model · repo, then ctx · cost · limits" width="880">
+</p>
 
-```
-🕌 Maghrib 19:50 (in 2h 25m) · 📿 سبحان الله وبحمده — SubhanAllahi wa bihamdihi
-Opus 4.8 | my-project@master (+469 -25)
-ctx 45k/1.0m (4%) | cost $1.23 | 5h 9% | 7d 5% | extra $0.00/$200.00
-```
+Prayer times and dhikr stacked on a usage statusline (context, cost, plan limits) for Claude Code — one script, three lines.
 
 <sub>Hijri date sits between the prayer and the dhikr by default; hidden above via `MS_NO_HIJRI=1`.</sub>
 
