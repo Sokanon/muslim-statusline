@@ -3,10 +3,12 @@
 Prayer times and dhikr stacked on a usage statusline (context, cost, plan limits) for Claude Code — one script, three lines.
 
 ```
-🕌 Asr 16:20 (in 50m) · ☪️ 25 Dhū al-Ḥijjah 1447 · 📿 سبحان الله وبحمده — SubhanAllahi wa bihamdihi
-Opus 4.8 | my-project@main (+469 -25)
-ctx 47k/1.0m (5%) | cost $1.23 | 5h 9% | 7d 5% | extra $0.00/$200.00
+🕌 Maghrib 19:50 (in 2h 25m) · 📿 سبحان الله وبحمده — SubhanAllahi wa bihamdihi
+Opus 4.8 | my-project@master (+469 -25)
+ctx 45k/1.0m (4%) | cost $1.23 | 5h 9% | 7d 5% | extra $0.00/$200.00
 ```
+
+<sub>Hijri date sits between the prayer and the dhikr by default; hidden above via `MS_NO_HIJRI=1`.</sub>
 
 ## What it does
 
