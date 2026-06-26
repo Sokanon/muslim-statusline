@@ -18,16 +18,20 @@ if [ -f "$DEST" ]; then
   cp "$DEST" "$DEST.bak-$STAMP"
   echo "Backed up existing $DEST → $DEST.bak-$STAMP"
 fi
-# 2. Best-effort: the script their current statusLine command points to (if any).
+# 2. Best-effort: every script their current statusLine command references.
+#    Covers glue/wrapper statuslines that chain several scripts, not just one.
 if [ -f "$SETTINGS" ]; then
   prev_cmd=$(jq -r '.statusLine.command // empty' "$SETTINGS" 2>/dev/null)
   for tok in $prev_cmd; do
-    p="${tok/#\~/$HOME}"                 # expand a leading ~
-    [ "${p#\$HOME}" != "$p" ] && p="${p/\$HOME/$HOME}"
-    if [ -f "$p" ] && [ "$p" != "$DEST" ]; then
+    p="${tok/#\~/$HOME}"                       # expand a leading ~
+    p="${p/\$HOME/$HOME}"                       # expand a literal $HOME
+    [ -L "$p" ] && p=$(readlink -f "$p" 2>/dev/null || echo "$p")  # follow symlinks (e.g. active.sh)
+    case "$p" in
+      "$DEST"|"$DEST.bak-$STAMP") continue ;;  # don't re-back-up our own target
+    esac
+    if [ -f "$p" ] && [ ! -f "$p.bak-$STAMP" ]; then
       cp "$p" "$p.bak-$STAMP"
       echo "Backed up current statusline $p → $p.bak-$STAMP"
-      break
     fi
   done
 fi
