@@ -22,7 +22,10 @@ case "$(uname -s)" in
     _bash_win=$(cygpath -w "$(command -v bash)" 2>/dev/null || true)
     if [ -n "$_bash_win" ]; then
       _bash_short=$(cygpath -d "$_bash_win" 2>/dev/null || true)
-      BASH_CMD="${_bash_short:-$_bash_win}"
+      # Claude Code runs the statusline command through Git Bash, where
+      # backslashes are escape characters — emit forward slashes instead
+      # (cmd.exe and CreateProcess accept them too).
+      BASH_CMD=$(cygpath -m "${_bash_short:-$_bash_win}" 2>/dev/null || echo "${_bash_short:-$_bash_win}")
     fi
     ;;
 esac
