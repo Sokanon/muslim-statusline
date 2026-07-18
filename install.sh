@@ -42,11 +42,15 @@ if [ -f "$SETTINGS" ]; then
   # path containing a space (e.g. C:\Users\So Kanon\...), so try the whole
   # command and the command minus a leading interpreter before falling back to
   # per-token splitting (which still catches glue statuslines chaining scripts).
+  # Token 0 is skipped: it is the interpreter (bash, or an absolute bash.exe on
+  # Windows), never a statusline script. Backing it up is at best pointless and
+  # at worst fatal - cp into Program Files fails, and set -e aborts the install.
+  # A bare script path with no interpreter is still covered by "$prev_cmd".
   candidates=()
   if [ -n "$prev_cmd" ]; then
     candidates+=("$prev_cmd" "${prev_cmd#* }")
     read -ra _toks <<< "$prev_cmd" || true
-    [ "${#_toks[@]}" -gt 0 ] && candidates+=("${_toks[@]}")
+    [ "${#_toks[@]}" -gt 1 ] && candidates+=("${_toks[@]:1}")
   fi
 
   for tok in ${candidates[@]+"${candidates[@]}"}; do
@@ -63,9 +67,14 @@ if [ -f "$SETTINGS" ]; then
     case "$p" in
       "$DEST"|"$DEST.bak-$STAMP") continue ;;  # don't re-back-up our own target
     esac
+    # Never let a best-effort backup abort the install (set -e): an unwritable
+    # directory here should warn, not stop the user from installing.
     if [ -f "$p" ] && [ ! -f "$p.bak-$STAMP" ]; then
-      cp "$p" "$p.bak-$STAMP"
-      echo "Backed up current statusline $p → $p.bak-$STAMP"
+      if cp "$p" "$p.bak-$STAMP" 2>/dev/null; then
+        echo "Backed up current statusline $p → $p.bak-$STAMP"
+      else
+        echo "⚠️  Could not back up $p (not writable) — continuing"
+      fi
     fi
   done
 fi
