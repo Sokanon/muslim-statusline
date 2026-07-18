@@ -302,6 +302,17 @@ iso_to_epoch() {
     return 1
 }
 
+# Format an epoch with a strftime string, detecting the date variant once.
+# A fallback chain (`date -j ... | sed | tr || date -d ...`) cannot work here:
+# a pipeline's exit status is its LAST command, so `tr` succeeding masks
+# `date -j` failing and the `||` branch never runs. Detect up front instead,
+# mirroring _stat_mtime above.
+if date -d @0 +%s >/dev/null 2>&1; then
+    _date_fmt() { date -d "@$1" +"$2" 2>/dev/null; }    # GNU (Linux, Git Bash)
+else
+    _date_fmt() { date -j -r "$1" +"$2" 2>/dev/null; }  # BSD (macOS)
+fi
+
 # Format ISO reset timestamp to compact local time
 # Styles: time (4:30pm) | datetime (Mar 6, 4:30pm) | date (Mar 6)
 format_reset_time() {
@@ -312,20 +323,14 @@ format_reset_time() {
     local epoch
     epoch=$(iso_to_epoch "$iso_str") || return
 
+    local out
     case "$style" in
-        time)
-            date -j -r "$epoch" +"%l:%M%p" 2>/dev/null | sed 's/^ //' | tr '[:upper:]' '[:lower:]' || \
-            date -d "@$epoch" +"%l:%M%P" 2>/dev/null | sed 's/^ //'
-            ;;
-        datetime)
-            date -j -r "$epoch" +"%b %-d, %l:%M%p" 2>/dev/null | sed 's/  / /g; s/^ //' | tr '[:upper:]' '[:lower:]' || \
-            date -d "@$epoch" +"%b %-d, %l:%M%P" 2>/dev/null | sed 's/  / /g; s/^ //'
-            ;;
-        *)
-            date -j -r "$epoch" +"%b %-d" 2>/dev/null | tr '[:upper:]' '[:lower:]' || \
-            date -d "@$epoch" +"%b %-d" 2>/dev/null
-            ;;
+        time)     out=$(_date_fmt "$epoch" "%l:%M%p") ;;
+        datetime) out=$(_date_fmt "$epoch" "%b %-d, %l:%M%p") ;;
+        *)        out=$(_date_fmt "$epoch" "%b %-d") ;;
     esac
+    [ -n "$out" ] || return
+    printf '%s' "$out" | sed 's/  / /g; s/^ //' | tr '[:upper:]' '[:lower:]'
 }
 
 # Format time remaining until reset: epoch → "in 2h 24min", "in 47min", "soon"
@@ -475,7 +480,12 @@ out1+="${blue}${model_name}${reset}"
 
 # Git: project[wt]@branch +adds/-dels
 if [ "${STATUSLINE_SHOW_GIT}" = "true" ] && [ -n "$cwd" ]; then
-    display_dir="${cwd##*/}"
+    # Normalize separators first: on Windows, Claude Code sends a native path
+    # (C:\Users\me\proj), which has no '/' for ##*/ to strip — leaving the
+    # whole path as the project name.
+    display_dir="${cwd//\\//}"
+    display_dir="${display_dir%/}"
+    display_dir="${display_dir##*/}"
     git_branch=$(git -C "${cwd}" rev-parse --abbrev-ref HEAD 2>/dev/null)
     out1+="${sep}${cyan}${display_dir}${reset}"
     if [ -n "$git_branch" ]; then

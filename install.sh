@@ -12,6 +12,21 @@ command -v curl >/dev/null 2>&1 || { echo "❌ curl is required"; exit 1; }
 DEST="$HOME/.claude/statuslines/muslim.sh"
 mkdir -p "$HOME/.claude/statuslines"
 
+# ── How Claude Code should invoke bash ──
+# On Windows, Git for Windows ships bash.exe in Git\bin but only puts Git\cmd
+# on PATH, so a bare "bash" is often unresolvable outside a Git Bash shell.
+# Emit an absolute (8.3, space-free) path there; plain "bash" everywhere else.
+BASH_CMD="bash"
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    _bash_win=$(cygpath -w "$(command -v bash)" 2>/dev/null || true)
+    if [ -n "$_bash_win" ]; then
+      _bash_short=$(cygpath -d "$_bash_win" 2>/dev/null || true)
+      BASH_CMD="${_bash_short:-$_bash_win}"
+    fi
+    ;;
+esac
+
 # ── Back up whatever statusline they run today, before we replace it ──
 # 1. An existing install at our destination.
 if [ -f "$DEST" ]; then
@@ -22,9 +37,28 @@ fi
 #    Covers glue/wrapper statuslines that chain several scripts, not just one.
 if [ -f "$SETTINGS" ]; then
   prev_cmd=$(jq -r '.statusLine.command // empty' "$SETTINGS" 2>/dev/null)
-  for tok in $prev_cmd; do
+
+  # Candidates, most specific first. Splitting on whitespace alone loses any
+  # path containing a space (e.g. C:\Users\So Kanon\...), so try the whole
+  # command and the command minus a leading interpreter before falling back to
+  # per-token splitting (which still catches glue statuslines chaining scripts).
+  candidates=()
+  if [ -n "$prev_cmd" ]; then
+    candidates+=("$prev_cmd" "${prev_cmd#* }")
+    read -ra _toks <<< "$prev_cmd" || true
+    [ "${#_toks[@]}" -gt 0 ] && candidates+=("${_toks[@]}")
+  fi
+
+  for tok in ${candidates[@]+"${candidates[@]}"}; do
     p="${tok/#\~/$HOME}"                       # expand a leading ~
     p="${p/\$HOME/$HOME}"                       # expand a literal $HOME
+    # Only consider things that actually look like paths. A bare token such as
+    # "statusline.sh" would otherwise resolve against the installer's cwd and
+    # back up an unrelated file that merely shares the name.
+    case "$p" in
+      */*|*\\*) ;;
+      *) continue ;;
+    esac
     [ -L "$p" ] && p=$(readlink -f "$p" 2>/dev/null || echo "$p")  # follow symlinks (e.g. active.sh)
     case "$p" in
       "$DEST"|"$DEST.bak-$STAMP") continue ;;  # don't re-back-up our own target
@@ -40,13 +74,16 @@ fi
 cp "$HERE/statusline.sh" "$DEST"
 chmod +x "$DEST"
 
+# Built via --arg so a Windows path's backslashes are JSON-escaped correctly.
+LINE_CMD="$BASH_CMD ~/.claude/statuslines/muslim.sh"
+
 if [ -f "$SETTINGS" ]; then
   cp "$SETTINGS" "$SETTINGS.bak-$STAMP"
-  jq '.statusLine = {"type":"command","command":"bash ~/.claude/statuslines/muslim.sh"}' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+  jq --arg cmd "$LINE_CMD" '.statusLine = {"type":"command","command":$cmd}' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
   echo "Backed up settings → $SETTINGS.bak-$STAMP"
 else
   mkdir -p "$HOME/.claude"
-  echo '{"statusLine":{"type":"command","command":"bash ~/.claude/statuslines/muslim.sh"}}' > "$SETTINGS"
+  jq -n --arg cmd "$LINE_CMD" '{statusLine:{type:"command",command:$cmd}}' > "$SETTINGS"
 fi
 
 echo "☪️ Installed. Preview:"
