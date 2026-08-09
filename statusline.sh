@@ -9,7 +9,8 @@
 # Part 2 (ctx/cost/limits) is adapted from claude-code-statusline by Aleksander Dytko
 #   (MIT) — https://github.com/aleksander-dytko/claude-code-statusline
 #
-# APIs (cached aggressively, statusline never blocks on network for long):
+# APIs (cached aggressively; fetches run detached in the background, so the
+# render itself never touches the network — fresh data appears next render):
 #   location: ip-api.com (cached 7 days)        override: PRAYER_LAT / PRAYER_LON / PRAYER_CITY
 #   timings:  api.aladhan.com (cached daily)    method:   PRAYER_METHOD (default 3 = MWL; 5 = Egyptian, fits North Africa)
 #   usage:    api.anthropic.com OAuth usage (cached 60s)
@@ -23,6 +24,11 @@ unset LC_ALL         # LC_ALL overrides LC_NUMERIC; unset it while preserving ot
 
 input=$(cat)
 command -v jq >/dev/null 2>&1 || { printf "☪️ statusline needs jq"; exit 0; }
+
+# One `date` spawn for every timestamp/format the fast path needs — each extra
+# spawn costs ~65ms on Windows, and Claude Code kills renders that outlive the
+# next update, so the render path has to stay well under a second.
+read -r NOW TODAY DMY DOW NOW_HM <<< "$(date +'%s %F %d-%m-%Y %u %H:%M')"
 
 # Detect stat variant once (GNU vs BSD) to avoid repeated fallback forks
 if stat -c %Y /dev/null >/dev/null 2>&1; then
@@ -52,11 +58,18 @@ lat="$PRAYER_LAT"; lon="$PRAYER_LON"; city="$PRAYER_CITY"
 if [ -z "$lat" ] || [ -z "$lon" ]; then
   LOC="$CACHE/location.json"
   loc_age=999999999
-  [ -s "$LOC" ] && loc_age=$(( $(date +%s) - $(_stat_mtime "$LOC") ))
+  [ -s "$LOC" ] && loc_age=$(( NOW - $(_stat_mtime "$LOC") ))
   if [ "$loc_age" -gt 604800 ]; then
-    resp=$(curl -s --max-time 3 "http://ip-api.com/json?fields=status,city,lat,lon" 2>/dev/null)
-    # jq 1.6 bug: -e exits 0 on empty input, so guard against an empty response
-    [ -n "$resp" ] && echo "$resp" | jq -e '.status=="success"' >/dev/null 2>&1 && echo "$resp" > "$LOC"
+    # Background the fetch: the render must never block on network, or Claude
+    # Code cancels it mid-run and the whole line goes blank. All fds redirected
+    # so the parent's stdout pipe can close immediately.
+    (
+      resp=$(curl -s --max-time 3 "http://ip-api.com/json?fields=status,city,lat,lon" 2>/dev/null)
+      # jq 1.6 bug: -e exits 0 on empty input, so guard against an empty response
+      if [ -n "$resp" ] && echo "$resp" | jq -e '.status=="success"' >/dev/null 2>&1; then
+        printf '%s' "$resp" > "$LOC.tmp.$$" && mv -f "$LOC.tmp.$$" "$LOC"
+      fi
+    ) >/dev/null 2>&1 </dev/null &
   fi
   if [ -s "$LOC" ]; then
     lat=$(jq -r '.lat' "$LOC"); lon=$(jq -r '.lon' "$LOC")
@@ -65,7 +78,7 @@ if [ -z "$lat" ] || [ -z "$lon" ]; then
 fi
 
 # ── Prayer timings (Aladhan, cached per day; fetch throttled to 1/min on failure) ──
-key="$(date +%F)-m$METHOD"
+key="$TODAY-m$METHOD"
 TIM="$CACHE/timings-$key.json"
 STAMP="$CACHE/fetch-attempt"
 # self-heal: a cache file that doesn't parse poisons the whole day — drop it so it refetches
@@ -73,14 +86,17 @@ STAMP="$CACHE/fetch-attempt"
 [ -s "$TIM" ] && [ -z "$(jq -r '.data.timings.Fajr // empty' "$TIM" 2>/dev/null)" ] && rm -f "$TIM"
 if [ ! -s "$TIM" ] && [ -n "$lat" ] && [ -n "$lon" ]; then
   stamp_age=999999
-  [ -f "$STAMP" ] && stamp_age=$(( $(date +%s) - $(_stat_mtime "$STAMP") ))
+  [ -f "$STAMP" ] && stamp_age=$(( NOW - $(_stat_mtime "$STAMP") ))
   if [ "$stamp_age" -ge 60 ]; then
     touch "$STAMP"
-    resp=$(curl -s --max-time 4 "https://api.aladhan.com/v1/timings/$(date +%d-%m-%Y)?latitude=$lat&longitude=$lon&method=$METHOD" 2>/dev/null)
-    if [ -n "$resp" ] && echo "$resp" | jq -e '.data.timings.Fajr' >/dev/null 2>&1; then
-      echo "$resp" > "$TIM"
-      find "$CACHE" -name 'timings-*.json' ! -name "timings-$key.json" -delete 2>/dev/null
-    fi
+    # Backgrounded: render never blocks on network (see location fetch above)
+    (
+      resp=$(curl -s --max-time 4 "https://api.aladhan.com/v1/timings/$DMY?latitude=$lat&longitude=$lon&method=$METHOD" 2>/dev/null)
+      if [ -n "$resp" ] && echo "$resp" | jq -e '.data.timings.Fajr' >/dev/null 2>&1; then
+        printf '%s' "$resp" > "$TIM.tmp.$$" && mv -f "$TIM.tmp.$$" "$TIM"
+        find "$CACHE" -name 'timings-*.json' ! -name "timings-$key.json" -delete 2>/dev/null
+      fi
+    ) >/dev/null 2>&1 </dev/null &
   fi
 fi
 
@@ -97,33 +113,42 @@ adhkar=(
   "حسبنا الله ونعم الوكيل — Hasbunallahu wa ni'mal wakeel"
   "رب اغفر لي — Rabbi-ghfir li"
 )
-didx=$(( $(date +%s) / 1800 % ${#adhkar[@]} ))
+didx=$(( NOW / 1800 % ${#adhkar[@]} ))
 dhikr="${adhkar[$didx]}"
 
 # ── Clock (MS_NOW override for testing) ──
-now_hm="${MS_NOW:-$(date +%H:%M)}"
+now_hm="${MS_NOW:-$NOW_HM}"
 now_min=$(( 10#${now_hm%%:*} * 60 + 10#${now_hm##*:} ))
 
 # ── Next prayer ──
 prayer_line=""
 hijri=""
 if [ -s "$TIM" ]; then
-  hijri_day=$(jq -r '.data.date.hijri.day' "$TIM")
-  hijri_month=$(jq -r '.data.date.hijri.month.en' "$TIM")
-  hijri_year=$(jq -r '.data.date.hijri.year' "$TIM")
-  hijri_mnum="${MS_HIJRI_MONTH:-$(jq -r '.data.date.hijri.month.number' "$TIM")}"
+  # One jq pass for every field we need: each spawn costs ~65ms on Windows, and
+  # this block used to fire fourteen of them (4 hijri + 5 timings + 5 `cut`).
+  # Separator is US (\x1f), not tab: tab is an IFS *whitespace* char, so bash
+  # collapses runs of them and an empty field would shift every later field left.
+  IFS=$'\x1f' read -r hijri_day hijri_month hijri_year hijri_mnum \
+                     t_Fajr t_Dhuhr t_Asr t_Maghrib t_Isha <<EOF
+$(jq -r '[.data.date.hijri.day, .data.date.hijri.month.en, .data.date.hijri.year,
+          .data.date.hijri.month.number,
+          .data.timings.Fajr, .data.timings.Dhuhr, .data.timings.Asr,
+          .data.timings.Maghrib, .data.timings.Isha]
+         | map(tostring) | join("")' "$TIM")
+EOF
+  hijri_mnum="${MS_HIJRI_MONTH:-$hijri_mnum}"
   hijri="${hijri_day} ${hijri_month} ${hijri_year}"
 
   names=(Fajr Dhuhr Asr Maghrib Isha)
   next_name=""; next_min=99999; prev_name=""; prev_min=-99999
   for p in "${names[@]}"; do
-    t=$(jq -r ".data.timings.$p" "$TIM" | cut -c1-5)
+    var="t_$p"; t="${!var}"; t="${t:0:5}"   # trim any "(EET)" suffix, no `cut` spawn
     m=$(( 10#${t%%:*} * 60 + 10#${t##*:} ))
     if [ "$m" -gt "$now_min" ] && [ "$m" -lt "$next_min" ]; then next_name="$p"; next_min=$m; next_t="$t"; fi
     if [ "$m" -le "$now_min" ] && [ "$m" -gt "$prev_min" ]; then prev_name="$p"; prev_min=$m; fi
   done
   if [ -z "$next_name" ]; then  # past Isha → Fajr tomorrow (approximate with today's time)
-    next_name="Fajr"; next_t=$(jq -r '.data.timings.Fajr' "$TIM" | cut -c1-5)
+    next_name="Fajr"; next_t="${t_Fajr:0:5}"
     next_min=$(( 10#${next_t%%:*} * 60 + 10#${next_t##*:} + 1440 ))
   fi
 
@@ -131,7 +156,7 @@ if [ -s "$TIM" ]; then
   if [ "$diff" -ge 60 ]; then cd_str="in $(( diff / 60 ))h $(( diff % 60 ))m"; else cd_str="in ${diff}m"; fi
 
   label="$next_name"
-  [ "$(date +%u)" -eq 5 ] && [ "$next_name" = "Dhuhr" ] && label="Jumu'ah 🕌"
+  [ "$DOW" -eq 5 ] && [ "$next_name" = "Dhuhr" ] && label="Jumu'ah 🕌"
 
   if [ -n "$prev_name" ] && [ $(( now_min - prev_min )) -le 20 ]; then
     prayer_line="${gold}🤲 ${prev_name} time — go pray${reset}"
@@ -330,7 +355,9 @@ format_reset_time() {
         *)        out=$(_date_fmt "$epoch" "%b %-d") ;;
     esac
     [ -n "$out" ] || return
-    printf '%s' "$out" | sed 's/  / /g; s/^ //' | tr '[:upper:]' '[:lower:]'
+    # squeeze/lowercase in pure bash — a sed|tr pipeline is 2 more spawns
+    out="${out//  / }"; out="${out# }"
+    printf '%s' "${out,,}"
 }
 
 # Format time remaining until reset: epoch → "in 2h 24min", "in 47min", "soon"
@@ -341,9 +368,8 @@ format_countdown() {
     local epoch
     epoch=$(iso_to_epoch "$iso_str") || return
 
-    local now diff hours mins
-    now=$(date +%s)
-    diff=$(( epoch - now ))
+    local diff hours mins
+    diff=$(( epoch - NOW ))
 
     [ "$diff" -le 0 ] && echo "soon" && return
 
@@ -357,33 +383,40 @@ format_countdown() {
 }
 
 # ─── Parse stdin JSON ────────────────────────────────────────────────────────
-model_name=$(echo "$input" | jq -r '.model.display_name // "Claude"')
-cwd=$(echo "$input" | jq -r '.cwd // empty')
+# Single jq pass over stdin — nine separate invocations here cost ~0.6s on Windows.
+IFS=$'\x1f' read -r model_name cwd size input_tokens cache_create cache_read \
+                   pct_used_stdin session_cost wt_name <<EOF
+$(echo "$input" | jq -r '[.model.display_name // "Claude", .cwd // "",
+    .context_window.context_window_size // 200000,
+    .context_window.current_usage.input_tokens // 0,
+    .context_window.current_usage.cache_creation_input_tokens // 0,
+    .context_window.current_usage.cache_read_input_tokens // 0,
+    .context_window.used_percentage // "",
+    .cost.total_cost_usd // 0,
+    .worktree.name // ""] | map(tostring) | join("")')
+EOF
+# If the jq spawn itself failed (fork pressure on Windows), every field is
+# empty — default them so the line degrades gracefully instead of erroring.
+[ -n "$model_name" ] || model_name="Claude"
+input_tokens="${input_tokens:-0}"; cache_create="${cache_create:-0}"; cache_read="${cache_read:-0}"
+session_cost="${session_cost:-0}"
+[ "$size" -eq 0 ] 2>/dev/null || [ -z "$size" ] && size=200000
 
-size=$(echo "$input" | jq -r '.context_window.context_window_size // 200000')
-[ "$size" -eq 0 ] 2>/dev/null && size=200000
-
-input_tokens=$(echo "$input" | jq -r '.context_window.current_usage.input_tokens // 0')
-cache_create=$(echo "$input" | jq -r '.context_window.current_usage.cache_creation_input_tokens // 0')
-cache_read=$(echo "$input"   | jq -r '.context_window.current_usage.cache_read_input_tokens // 0')
 current=$(( input_tokens + cache_create + cache_read ))
 
 used_tokens=$(format_tokens "$current")
 total_tokens=$(format_tokens "$size")
 
 # Prefer stdin pre-calculated percentage; fall back to manual integer division
-pct_used_stdin=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
 if [ -n "$pct_used_stdin" ] && [ "$pct_used_stdin" != "null" ]; then
-    pct_used=$(printf "%.0f" "$pct_used_stdin" 2>/dev/null || echo 0)
+    # assign-then-fallback: bash printf emits a best-effort "0" AND returns
+    # failure on bad input, so `$(printf … || echo 0)` used to yield "00"
+    pct_used=$(printf "%.0f" "$pct_used_stdin" 2>/dev/null) || pct_used=0
 else
     pct_used=$(( size > 0 ? current * 100 / size : 0 ))
 fi
 
-# Session cost from stdin (no API call needed)
-session_cost=$(echo "$input" | jq -r '.cost.total_cost_usd // 0')
-
-# Worktree info from stdin (more accurate than git-dir path heuristic)
-wt_name=$(echo "$input" | jq -r '.worktree.name // empty')
+# session_cost and wt_name come from the single stdin parse above.
 
 # ─── Fetch / cache usage API ─────────────────────────────────────────────────
 cache_file="${STATUSLINE_CACHE_DIR}/statusline-usage-cache.json"
@@ -392,7 +425,7 @@ ratelimit_stamp="${STATUSLINE_CACHE_DIR}/statusline-ratelimited"
 lock_dir="${STATUSLINE_CACHE_DIR}/statusline-fetch.lock"
 mkdir -p "${STATUSLINE_CACHE_DIR}"
 
-now=$(date +%s)
+now=$NOW
 usage_data=""
 
 # Always load valid cached data for display (even if stale — shown while refreshing)
@@ -426,41 +459,47 @@ if ! $ratelimited; then
 fi
 
 if $needs_refresh; then
-    # Atomic lock: mkdir is POSIX-atomic — only one session fetches at a time
-    # If mkdir fails, check for stale lock (crashed holder) and retry once
-    got_lock=false
-    if mkdir "$lock_dir" 2>/dev/null; then
-        got_lock=true
-    else
-        lock_mtime=$(_stat_mtime "$lock_dir" || echo 0)
-        if [ $(( now - lock_mtime )) -gt 30 ]; then
-            rmdir "$lock_dir" 2>/dev/null && mkdir "$lock_dir" 2>/dev/null && got_lock=true
-        fi
-    fi
-    if $got_lock; then
-        trap 'rmdir "$lock_dir" 2>/dev/null' INT TERM EXIT
-        touch "$attempt_stamp"
-        token=$(get_oauth_token)
-        if [ -n "$token" ] && [ "$token" != "null" ]; then
-            response=$(curl -s --max-time 8 \
-                -H "Accept: application/json" \
-                -H "Content-Type: application/json" \
-                -H "Authorization: Bearer $token" \
-                -H "anthropic-beta: oauth-2025-04-20" \
-                -H "User-Agent: claude-code-statusline/1.0.0" \
-                "https://api.anthropic.com/api/oauth/usage" 2>/dev/null)
-            if [ -n "$response" ] && echo "$response" | jq -e '.five_hour' >/dev/null 2>&1; then
-                usage_data="$response"
-                echo "$response" > "$cache_file"
-                rm -f "$ratelimit_stamp"  # success — reset backoff
-            elif echo "$response" | jq -e '.error.type == "rate_limit_error"' >/dev/null 2>&1; then
-                echo $(( rl_count + 1 )) > "$ratelimit_stamp"  # increment backoff counter
+    touch "$attempt_stamp"
+    # The fetch runs detached (fds closed, backgrounded): Claude Code cancels
+    # any render still running when the next update fires, and an in-render
+    # curl of up to 8s guaranteed exactly that — the killed render showed a
+    # blank line AND leaked the lock. This render serves whatever cache exists;
+    # the refreshed data appears next render.
+    (
+        # Atomic lock: mkdir is POSIX-atomic — only one session fetches at a time
+        # If mkdir fails, check for stale lock (crashed holder) and retry once
+        got_lock=false
+        if mkdir "$lock_dir" 2>/dev/null; then
+            got_lock=true
+        else
+            lock_mtime=$(_stat_mtime "$lock_dir" || echo 0)
+            if [ $(( now - lock_mtime )) -gt 30 ]; then
+                rmdir "$lock_dir" 2>/dev/null && mkdir "$lock_dir" 2>/dev/null && got_lock=true
             fi
         fi
-        rmdir "$lock_dir" 2>/dev/null
-        trap - INT TERM EXIT
-    fi
-    # If mkdir failed, another session holds the lock — silently use cached data
+        if $got_lock; then
+            trap 'rmdir "$lock_dir" 2>/dev/null' INT TERM EXIT
+            token=$(get_oauth_token)
+            if [ -n "$token" ] && [ "$token" != "null" ]; then
+                response=$(curl -s --max-time 8 \
+                    -H "Accept: application/json" \
+                    -H "Content-Type: application/json" \
+                    -H "Authorization: Bearer $token" \
+                    -H "anthropic-beta: oauth-2025-04-20" \
+                    -H "User-Agent: claude-code-statusline/1.0.0" \
+                    "https://api.anthropic.com/api/oauth/usage" 2>/dev/null)
+                if [ -n "$response" ] && echo "$response" | jq -e '.five_hour' >/dev/null 2>&1; then
+                    # tmp+mv keeps the write atomic — a concurrent render that
+                    # cats a half-written cache would silently drop the limits
+                    printf '%s' "$response" > "$cache_file.tmp.$$" && mv -f "$cache_file.tmp.$$" "$cache_file"
+                    rm -f "$ratelimit_stamp"  # success — reset backoff
+                elif echo "$response" | jq -e '.error.type == "rate_limit_error"' >/dev/null 2>&1; then
+                    echo $(( rl_count + 1 )) > "$ratelimit_stamp"  # increment backoff counter
+                fi
+            fi
+        fi
+        # If mkdir failed, another session holds the lock — cached data is shown
+    ) >/dev/null 2>&1 </dev/null &
 fi
 
 # ─── Build output ────────────────────────────────────────────────────────────
@@ -486,14 +525,14 @@ if [ "${STATUSLINE_SHOW_GIT}" = "true" ] && [ -n "$cwd" ]; then
     display_dir="${cwd//\\//}"
     display_dir="${display_dir%/}"
     display_dir="${display_dir##*/}"
-    git_branch=$(git -C "${cwd}" rev-parse --abbrev-ref HEAD 2>/dev/null)
+    # branch + git-dir in one spawn (two output lines) — was two git calls
+    { read -r git_branch; read -r git_dir; } <<< "$(git -C "${cwd}" rev-parse --abbrev-ref HEAD --git-dir 2>/dev/null)"
     out1+="${sep}${cyan}${display_dir}${reset}"
     if [ -n "$git_branch" ]; then
         # Worktree detection: prefer stdin worktree.name (accurate); fallback to git-dir path heuristic
         if [ -n "$wt_name" ]; then
             out1+="${dim}[wt:${wt_name}]${reset}"
         else
-            git_dir=$(git -C "${cwd}" rev-parse --git-dir 2>/dev/null)
             [[ "$git_dir" == *"/worktrees/"* ]] && out1+="${dim}[wt]${reset}"
         fi
         out1+="${dim}@${reset}${green}${git_branch}${reset}"
@@ -515,7 +554,7 @@ fi
 
 # Session cost (cost line, from stdin, no API call)
 if [ "${STATUSLINE_SHOW_SESSION_COST}" = "true" ]; then
-    cost_fmt=$(printf "%.2f" "$session_cost" 2>/dev/null || echo "0.00")
+    cost_fmt=$(printf "%.2f" "$session_cost" 2>/dev/null) || cost_fmt="0.00"
     sym="${STATUSLINE_CURRENCY_SYMBOL}"
     append_cost "${white}cost ${sym}${cost_fmt}${reset}"
 fi
@@ -523,10 +562,21 @@ fi
 # Usage limits from API
 if [ -n "$usage_data" ]; then
 
-    five_pct=$(echo "$usage_data" | jq -r '.five_hour.utilization // 0' | awk '{printf "%.0f", $1}')
-    five_reset_iso=$(echo "$usage_data" | jq -r '.five_hour.resets_at // empty')
-    seven_pct=$(echo "$usage_data" | jq -r '.seven_day.utilization // 0' | awk '{printf "%.0f", $1}')
-    seven_reset_iso=$(echo "$usage_data" | jq -r '.seven_day.resets_at // empty')
+    # Single jq pass, rounding done in jq — this replaced 7 jq + 5 awk spawns.
+    IFS=$'\x1f' read -r five_pct five_reset_iso seven_pct seven_reset_iso \
+                       extra_enabled extra_pct extra_used extra_limit <<EOF
+$(echo "$usage_data" | jq -r '[(.five_hour.utilization // 0 | round),
+    .five_hour.resets_at // "",
+    (.seven_day.utilization // 0 | round),
+    .seven_day.resets_at // "",
+    .extra_usage.is_enabled // false,
+    (.extra_usage.utilization // 0 | round),
+    ((.extra_usage.used_credits // 0) / 100 * 100 | round / 100),
+    ((.extra_usage.monthly_limit // 0) / 100 * 100 | round / 100)]
+    | map(tostring) | join("")')
+EOF
+
+    five_pct="${five_pct:-0}"; seven_pct="${seven_pct:-0}"; extra_pct="${extra_pct:-0}"
 
     # ⚡ fires on whichever limit is currently causing overflow (real-time signal)
     five_on_extra=false
@@ -570,11 +620,11 @@ if [ -n "$usage_data" ]; then
 
     # Extra usage — monthly billing summary (shown when extra is enabled)
     if [ "${STATUSLINE_SHOW_EXTRA}" = "true" ]; then
-        extra_enabled=$(echo "$usage_data" | jq -r '.extra_usage.is_enabled // false')
+        # extra_* already parsed in the single jq pass above; printf is a shell
+        # builtin, so the 2-decimal formatting costs nothing.
         if [ "$extra_enabled" = "true" ]; then
-            extra_pct=$(echo "$usage_data" | jq -r '.extra_usage.utilization // 0' | awk '{printf "%.0f", $1}')
-            extra_used=$(echo "$usage_data" | jq -r '.extra_usage.used_credits // 0' | awk '{printf "%.2f", $1/100}')
-            extra_limit=$(echo "$usage_data" | jq -r '.extra_usage.monthly_limit // 0' | awk '{printf "%.2f", $1/100}')
+            extra_used=$(printf "%.2f" "$extra_used" 2>/dev/null) || extra_used="0.00"
+            extra_limit=$(printf "%.2f" "$extra_limit" 2>/dev/null) || extra_limit="0.00"
             extra_clr=$(extra_color "$extra_pct")
 
             sym="${STATUSLINE_CURRENCY_SYMBOL}"
