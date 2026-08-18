@@ -6,7 +6,12 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SETTINGS="$HOME/.claude/settings.json"
 STAMP=$(date +%Y-%m-%d-%H%M%S)
 
-command -v jq >/dev/null 2>&1 || { echo "❌ jq is required (brew install jq / sudo apt install jq)"; exit 1; }
+PATH="$HOME/.claude/bin:$PATH"   # a jq dropped here wins; see statusline.sh
+
+# Run jq rather than just locating it: Windows Smart App Control leaves the
+# unsigned jq.exe on PATH but refuses to load it, so `command -v` passes and
+# every later jq call fails silently.
+echo '{}' | jq . >/dev/null 2>&1 || { echo "❌ jq is required and must be runnable (brew install jq / sudo apt install jq)"; exit 1; }
 command -v curl >/dev/null 2>&1 || { echo "❌ curl is required"; exit 1; }
 
 DEST="$HOME/.claude/statuslines/muslim.sh"

@@ -22,6 +22,12 @@ set -f               # disable globbing
 export LC_NUMERIC=C  # ensure '.' is decimal separator regardless of locale
 unset LC_ALL         # LC_ALL overrides LC_NUMERIC; unset it while preserving other locale vars
 
+# A jq in ~/.claude/bin wins over the system one. Windows Smart App Control
+# refuses to load unsigned binaries and the stock jq.exe is unsigned, which fails
+# silently: every field on lines 2-3 comes from a jq pass, so the whole line
+# degrades to its fallbacks with no error. Drop a signed replacement there.
+PATH="$HOME/.claude/bin:$PATH"
+
 input=$(cat)
 command -v jq >/dev/null 2>&1 || { printf "☪️ statusline needs jq"; exit 0; }
 
@@ -72,8 +78,18 @@ if [ -z "$lat" ] || [ -z "$lon" ]; then
     ) >/dev/null 2>&1 </dev/null &
   fi
   if [ -s "$LOC" ]; then
-    lat=$(jq -r '.lat' "$LOC"); lon=$(jq -r '.lon' "$LOC")
-    [ -z "$city" ] && city=$(jq -r '.city // empty' "$LOC")
+    # Re-parse only when the JSON is newer than the extract: location changes
+    # weekly at most, and a jq spawn is ~165ms of a sub-second render budget.
+    LOCF="$CACHE/location.fields"
+    [ "$LOCF" -nt "$LOC" ] || {
+      jq -r '[.lat, .lon, .city // ""] | join("\n")' "$LOC" > "$LOCF.tmp.$$" 2>/dev/null \
+        && mv -f "$LOCF.tmp.$$" "$LOCF" || rm -f "$LOCF.tmp.$$"
+    }
+    if [ -s "$LOCF" ]; then
+      { IFS= read -r f_lat; IFS= read -r f_lon; IFS= read -r f_city; } < "$LOCF"
+      lat="$f_lat"; lon="$f_lon"
+      [ -z "$city" ] && city="$f_city"
+    fi
   fi
 fi
 
@@ -81,9 +97,27 @@ fi
 key="$TODAY-m$METHOD"
 TIM="$CACHE/timings-$key.json"
 STAMP="$CACHE/fetch-attempt"
+# One jq pass per *day* extracts every hijri/timing field into a newline-separated
+# sidecar; every later render reads the sidecar. Re-parsing the JSON each render
+# cost two spawns (~330ms) for data that only changes at midnight.
 # self-heal: a cache file that doesn't parse poisons the whole day — drop it so it refetches
 # (check the extracted value, not jq's exit code: jq 1.6 -e exits 0 on empty/whitespace input)
-[ -s "$TIM" ] && [ -z "$(jq -r '.data.timings.Fajr // empty' "$TIM" 2>/dev/null)" ] && rm -f "$TIM"
+TIMF="$TIM.fields"
+if [ -s "$TIM" ]; then
+  [ "$TIMF" -nt "$TIM" ] || {
+    jq -r '[.data.date.hijri.day, .data.date.hijri.month.en, .data.date.hijri.year,
+            .data.date.hijri.month.number,
+            .data.timings.Fajr, .data.timings.Dhuhr, .data.timings.Asr,
+            .data.timings.Maghrib, .data.timings.Isha] | join("\n")' "$TIM" > "$TIMF.tmp.$$" 2>/dev/null \
+      && mv -f "$TIMF.tmp.$$" "$TIMF" || rm -f "$TIMF.tmp.$$"
+  }
+  [ -s "$TIMF" ] && {
+    IFS= read -r hijri_day;   IFS= read -r hijri_month; IFS= read -r hijri_year
+    IFS= read -r hijri_mnum;  IFS= read -r t_Fajr;      IFS= read -r t_Dhuhr
+    IFS= read -r t_Asr;       IFS= read -r t_Maghrib;   IFS= read -r t_Isha
+  } < "$TIMF"
+  [ -z "$t_Fajr" ] && rm -f "$TIM" "$TIMF"
+fi
 if [ ! -s "$TIM" ] && [ -n "$lat" ] && [ -n "$lon" ]; then
   stamp_age=999999
   [ -f "$STAMP" ] && stamp_age=$(( NOW - $(_stat_mtime "$STAMP") ))
@@ -124,18 +158,7 @@ now_min=$(( 10#${now_hm%%:*} * 60 + 10#${now_hm##*:} ))
 prayer_line=""
 hijri=""
 if [ -s "$TIM" ]; then
-  # One jq pass for every field we need: each spawn costs ~65ms on Windows, and
-  # this block used to fire fourteen of them (4 hijri + 5 timings + 5 `cut`).
-  # Separator is US (\x1f), not tab: tab is an IFS *whitespace* char, so bash
-  # collapses runs of them and an empty field would shift every later field left.
-  IFS=$'\x1f' read -r hijri_day hijri_month hijri_year hijri_mnum \
-                     t_Fajr t_Dhuhr t_Asr t_Maghrib t_Isha <<EOF
-$(jq -r '[.data.date.hijri.day, .data.date.hijri.month.en, .data.date.hijri.year,
-          .data.date.hijri.month.number,
-          .data.timings.Fajr, .data.timings.Dhuhr, .data.timings.Asr,
-          .data.timings.Maghrib, .data.timings.Isha]
-         | map(tostring) | join("")' "$TIM")
-EOF
+  # hijri_* and t_* were read from the daily sidecar above.
   hijri_mnum="${MS_HIJRI_MONTH:-$hijri_mnum}"
   hijri="${hijri_day} ${hijri_month} ${hijri_year}"
 
@@ -302,8 +325,39 @@ get_oauth_token() {
     echo ""
 }
 
+# Reset timestamps change every 5h/7d but were re-derived on every render, at two
+# `date` spawns (~110ms each) per conversion. Memoise by timestamp instead; the
+# key embeds the ISO string, so a stale entry can never be hit again.
+TSC_FILE="$CACHE/tsfmt.cache"
+declare -A TSC
+if [ -f "$TSC_FILE" ]; then
+    _tsc_n=0
+    while IFS=$'\t' read -r _tsc_k _tsc_v; do
+        [ -n "$_tsc_k" ] && TSC["$_tsc_k"]="$_tsc_v"
+        _tsc_n=$(( _tsc_n + 1 ))
+    done < "$TSC_FILE"
+    # Rewrite from the map rather than truncating: a cold render appends the same
+    # key from both the parent and the command-substitution subshell, and dropping
+    # the values would just re-spawn `date` next render.
+    if [ "$_tsc_n" -gt 32 ]; then
+        : > "$TSC_FILE"
+        for _tsc_k in "${!TSC[@]}"; do
+            printf '%s\t%s\n' "$_tsc_k" "${TSC[$_tsc_k]}" >> "$TSC_FILE"
+        done
+    fi
+fi
+
 # Convert ISO 8601 to Unix epoch (cross-platform: GNU date + BSD date)
 iso_to_epoch() {
+    local ck="e|$1" v
+    if [ -n "${TSC[$ck]+x}" ]; then printf '%s\n' "${TSC[$ck]}"; return 0; fi
+    v=$(_iso_to_epoch_uncached "$1") && [ -n "$v" ] || return 1
+    TSC[$ck]="$v"
+    printf '%s\t%s\n' "$ck" "$v" >> "$TSC_FILE"
+    printf '%s\n' "$v"
+}
+
+_iso_to_epoch_uncached() {
     local iso_str="$1"
 
     # GNU date (Linux)
@@ -341,6 +395,15 @@ fi
 # Format ISO reset timestamp to compact local time
 # Styles: time (4:30pm) | datetime (Mar 6, 4:30pm) | date (Mar 6)
 format_reset_time() {
+    local ck="f|$2|$1" v
+    if [ -n "${TSC[$ck]+x}" ]; then printf '%s' "${TSC[$ck]}"; return 0; fi
+    v=$(_format_reset_time_uncached "$1" "$2")
+    TSC[$ck]="$v"
+    printf '%s\t%s\n' "$ck" "$v" >> "$TSC_FILE"
+    printf '%s' "$v"
+}
+
+_format_reset_time_uncached() {
     local iso_str="$1"
     local style="$2"
     [ -z "$iso_str" ] || [ "$iso_str" = "null" ] && return
@@ -431,7 +494,9 @@ usage_data=""
 # Always load valid cached data for display (even if stale — shown while refreshing)
 if [ -f "$cache_file" ]; then
     cached=$(cat "$cache_file" 2>/dev/null)
-    echo "$cached" | jq -e '.five_hour' >/dev/null 2>&1 && usage_data="$cached"
+    # Substring test, not a jq spawn: the parse below defaults every field anyway,
+    # so this only has to reject a truncated or error-shaped cache file.
+    case "$cached" in *'"five_hour"'*) usage_data="$cached" ;; esac
 fi
 
 # Exponential backoff for rate limits: 30s → 60s → 120s → 240s → 300s (capped)
