@@ -20,7 +20,7 @@ Prayer times and dhikr stacked on a usage statusline (context, cost, plan limits
 - Works offline once cached: location is fetched weekly ([ip-api.com](http://ip-api.com)), prayer times once per day ([Aladhan API](https://aladhan.com/prayer-times-api)). No API keys. If the network is down, dhikr still shows.
 - All fetches run detached in the background — a render never waits on the network, so Claude Code can't cancel it mid-fetch and blank the line. Fresh data appears on the next render.
 
-**Lines 2–3 — usage:** model · repo@branch with diff stats, then context window, session cost, and your 5h / 7d / extra-usage limits (cached 60s from the Claude OAuth usage API). This half is adapted from [claude-code-statusline](https://github.com/aleksander-dytko/claude-code-statusline) by Aleksander Dytko (MIT) and folded into the same script. Set `STATUSLINE_SHOW_*=false` to hide any segment — see the config block at the top of `statusline.sh`.
+**Lines 2–3 — usage:** model · repo@branch with diff stats, then context window, session cost, and your 5h / 7d / extra-usage limits (cached 60s from the Claude OAuth usage API). This half is adapted from [claude-code-statusline](https://github.com/aleksander-dytko/claude-code-statusline) by Aleksander Dytko (MIT) and folded into the same script. Set `STATUSLINE_SHOW_*=false` to hide any segment — see the env list at the top of `statusline.ts`.
 
 ## Install
 
@@ -32,11 +32,11 @@ bash install.sh
 
 Or tell Claude Code: *"Clone https://github.com/Sokanon/muslim-statusline and run its install.sh"*
 
-The installer drops a single self-contained `~/.claude/statuslines/muslim.sh` and points your statusline at it. It backs up anything it would replace first — your `settings.json` and whatever statusline script you currently run — to timestamped `.bak-<date>` files, so you can always restore.
+The installer drops a single self-contained script into `~/.claude/statuslines/` (`muslim.ts` when [Bun](https://bun.sh) is installed, `muslim.sh` otherwise) and points your statusline at it. It backs up anything it would replace first — your `settings.json` and whatever statusline script you currently run — to timestamped `.bak-<date>` files, so you can always restore.
 
-Requirements: `jq` and `curl`. Works with either GNU date (Linux) or BSD date (macOS) — no `coreutils` install needed.
+Requirements: [Bun](https://bun.sh) (`curl -fsSL https://bun.sh/install | bash`, or `irm bun.sh/install.ps1 | iex` on Windows). Without Bun the installer falls back to the bash script on macOS and Linux, which needs `jq` and `curl` and works with either GNU or BSD date.
 
-On Windows, run it from Git Bash; the installer writes an absolute path to `bash.exe` because Git for Windows does not put it on `PATH`.
+On Windows, run the installer from Git Bash, and Bun is required rather than optional. Claude Code hard-kills a statusline render the moment the next update arrives, and Git Bash is an MSYS process that forks for every `jq`, `date` and `git` call. A fork caught by that kill aborts inside `msys-2.0.dll` and leaves a `bash.exe.stackdump` in whatever project you had open. `statusline.ts` runs as one native process and never forks, so there is nothing to catch.
 
 ## Configuration (optional)
 
@@ -58,7 +58,7 @@ Already have a statusline you like? `MS_LINE_ONLY=1` outputs just one line (pray
 ```bash
 #!/usr/bin/env bash
 input=$(cat)
-prayer=$(printf '%s' "$input" | MS_LINE_ONLY=1 bash ~/.claude/statuslines/muslim.sh)
+prayer=$(printf '%s' "$input" | MS_LINE_ONLY=1 bun ~/.claude/statuslines/muslim.ts)
 base=$(printf '%s' "$input" | bash ~/.claude/your-statusline.sh)
 printf '%s\n%s' "$prayer" "$base"
 ```
