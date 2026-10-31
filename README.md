@@ -20,7 +20,7 @@ Prayer times and dhikr stacked on a usage statusline (context, cost, plan limits
 - Works offline once cached: location is fetched weekly ([ip-api.com](http://ip-api.com)), prayer times once per day ([Aladhan API](https://aladhan.com/prayer-times-api)). No API keys. If the network is down, dhikr still shows.
 - All fetches run detached in the background — a render never waits on the network, so Claude Code can't cancel it mid-fetch and blank the line. Fresh data appears on the next render.
 
-**Lines 2–3 — usage:** model · repo@branch with diff stats, then context window, session cost, and your 5h / 7d / extra-usage limits (cached 60s from the Claude OAuth usage API). This half is adapted from [claude-code-statusline](https://github.com/aleksander-dytko/claude-code-statusline) by Aleksander Dytko (MIT) and folded into the same script. Set `STATUSLINE_SHOW_*=false` to hide any segment — see the env list at the top of `statusline.ts`.
+**Lines 2–3 — usage:** model · repo@branch with diff stats, then context window, session cost, and your 5h / 7d / extra-usage limits (5h only on plans that still have one; cached 60s from the Claude OAuth usage API). This half is adapted from [claude-code-statusline](https://github.com/aleksander-dytko/claude-code-statusline) by Aleksander Dytko (MIT) and folded into the same script. Set `STATUSLINE_SHOW_*=false` to hide any segment — see the env list at the top of `statusline.ts`.
 
 ## Install
 

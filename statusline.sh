@@ -496,7 +496,7 @@ if [ -f "$cache_file" ]; then
     cached=$(cat "$cache_file" 2>/dev/null)
     # Substring test, not a jq spawn: the parse below defaults every field anyway,
     # so this only has to reject a truncated or error-shaped cache file.
-    case "$cached" in *'"five_hour"'*) usage_data="$cached" ;; esac
+    case "$cached" in *'"five_hour"'*|*'"seven_day"'*) usage_data="$cached" ;; esac
 fi
 
 # Exponential backoff for rate limits: 30s → 60s → 120s → 240s → 300s (capped)
@@ -553,7 +553,7 @@ if $needs_refresh; then
                     -H "anthropic-beta: oauth-2025-04-20" \
                     -H "User-Agent: claude-code-statusline/1.0.0" \
                     "https://api.anthropic.com/api/oauth/usage" 2>/dev/null)
-                if [ -n "$response" ] && echo "$response" | jq -e '.five_hour' >/dev/null 2>&1; then
+                if [ -n "$response" ] && echo "$response" | jq -e '.five_hour // .seven_day' >/dev/null 2>&1; then
                     # tmp+mv keeps the write atomic — a concurrent render that
                     # cats a half-written cache would silently drop the limits
                     printf '%s' "$response" > "$cache_file.tmp.$$" && mv -f "$cache_file.tmp.$$" "$cache_file"
@@ -628,9 +628,10 @@ fi
 if [ -n "$usage_data" ]; then
 
     # Single jq pass, rounding done in jq — this replaced 7 jq + 5 awk spawns.
-    IFS=$'\x1f' read -r five_pct five_reset_iso seven_pct seven_reset_iso \
+    IFS=$'\x1f' read -r has_five five_pct five_reset_iso seven_pct seven_reset_iso \
                        extra_enabled extra_pct extra_used extra_limit <<EOF
-$(echo "$usage_data" | jq -r '[(.five_hour.utilization // 0 | round),
+$(echo "$usage_data" | jq -r '[(.five_hour != null),
+    (.five_hour.utilization // 0 | round),
     .five_hour.resets_at // "",
     (.seven_day.utilization // 0 | round),
     .seven_day.resets_at // "",
@@ -650,7 +651,7 @@ EOF
     [ "$seven_pct" -ge 100 ] && seven_on_extra=true
 
     # 5-hour session limit
-    if [ "${STATUSLINE_SHOW_SESSION}" = "true" ]; then
+    if [ "${STATUSLINE_SHOW_SESSION}" = "true" ] && [ "$has_five" = "true" ]; then
         five_color=$(plan_color "$five_pct")
         five_label="5h"
         $five_on_extra && five_label="⚡ 5h"

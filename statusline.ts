@@ -128,7 +128,7 @@ async function refresh(kind: string) {
         "anthropic-beta": "oauth-2025-04-20",
         "User-Agent": "claude-code-statusline/1.0.0",
       }).catch(() => null);
-      if (j?.five_hour) {
+      if (j?.five_hour || j?.seven_day) {
         writeAtomic(USAGE_CACHE, JSON.stringify(j));
         rm(RATELIMIT_STAMP);
       } else if (j?.error?.type === "rate_limit_error") {
@@ -271,7 +271,7 @@ function fmtCountdown(iso: string): string {
 
 mkdirSync(USAGE_DIR, { recursive: true });
 const usageData = readJson(USAGE_CACHE);
-const haveUsage = !!usageData?.five_hour;
+const haveUsage = !!(usageData?.five_hour || usageData?.seven_day);
 
 let rateLimited = false;
 const rlRaw = readText(RATELIMIT_STAMP).trim();
@@ -317,7 +317,7 @@ if (haveUsage) {
   const extra = usageData.extra_usage ?? {};
   const fiveOnExtra = fivePct >= 100, sevenOnExtra = sevenPct >= 100;
 
-  if (show("SESSION")) {
+  if (show("SESSION") && usageData.five_hour) {
     let seg = `${c.white}${fiveOnExtra ? "⚡ 5h" : "5h"}${c.reset} ${planColor(fivePct)}${fivePct}%${c.reset}`;
     const tail = fiveOnExtra ? fmtCountdown(fiveReset) : fmtReset(fiveReset, "time");
     if (tail) seg += ` ${c.dim}${fiveOnExtra ? "" : "@"}${tail}${c.reset}`;
