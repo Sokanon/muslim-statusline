@@ -218,6 +218,9 @@ STATUSLINE_SHOW_EXTRA="${STATUSLINE_SHOW_EXTRA:-true}"
 STATUSLINE_SHOW_SESSION_COST="${STATUSLINE_SHOW_SESSION_COST:-true}"
 STATUSLINE_CACHE_TTL="${STATUSLINE_CACHE_TTL:-60}"           # seconds between API fetches
 STATUSLINE_CACHE_DIR="${STATUSLINE_CACHE_DIR:-/tmp/claude}"  # cache directory
+# Each CLAUDE_CONFIG_DIR is a separate account, so token and cache are keyed by it.
+CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+ACCOUNT=$(printf '%s' "${CLAUDE_DIR##*/}" | tr -c 'A-Za-z0-9_.-' '_')
 STATUSLINE_CURRENCY_SYMBOL="${STATUSLINE_CURRENCY_SYMBOL:-$}"  # set to € for Europe
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -300,7 +303,7 @@ get_oauth_token() {
     fi
 
     # 3. Linux credentials file
-    local creds_file="${HOME}/.claude/.credentials.json"
+    local creds_file="${CLAUDE_DIR}/.credentials.json"
     if [ -f "$creds_file" ]; then
         local token
         token=$(jq -r '.claudeAiOauth.accessToken // empty' "$creds_file" 2>/dev/null)
@@ -482,10 +485,10 @@ fi
 # session_cost and wt_name come from the single stdin parse above.
 
 # ─── Fetch / cache usage API ─────────────────────────────────────────────────
-cache_file="${STATUSLINE_CACHE_DIR}/statusline-usage-cache.json"
-attempt_stamp="${STATUSLINE_CACHE_DIR}/statusline-fetch-attempt"
-ratelimit_stamp="${STATUSLINE_CACHE_DIR}/statusline-ratelimited"
-lock_dir="${STATUSLINE_CACHE_DIR}/statusline-fetch.lock"
+cache_file="${STATUSLINE_CACHE_DIR}/statusline-usage-cache-${ACCOUNT}.json"
+attempt_stamp="${STATUSLINE_CACHE_DIR}/statusline-fetch-attempt-${ACCOUNT}"
+ratelimit_stamp="${STATUSLINE_CACHE_DIR}/statusline-ratelimited-${ACCOUNT}"
+lock_dir="${STATUSLINE_CACHE_DIR}/statusline-fetch-${ACCOUNT}.lock"
 mkdir -p "${STATUSLINE_CACHE_DIR}"
 
 now=$NOW

@@ -35,6 +35,9 @@ const CACHE = join(env.XDG_CACHE_HOME || join(HOME, ".cache"), "muslim-statuslin
 const METHOD = env.PRAYER_METHOD || "3";
 const USAGE_DIR = env.STATUSLINE_CACHE_DIR || join(tmpdir(), "claude");
 const USAGE_TTL = Number(env.STATUSLINE_CACHE_TTL || 60);
+// Each CLAUDE_CONFIG_DIR is a separate account, so token and cache are keyed by it.
+const CONFIG_DIR = env.CLAUDE_CONFIG_DIR || join(HOME, ".claude");
+const ACCOUNT = basename(CONFIG_DIR).replace(/[^\w.-]/g, "_");
 const CURRENCY = env.STATUSLINE_CURRENCY_SYMBOL ?? "$";
 const show = (k: string) => (env[`STATUSLINE_SHOW_${k}`] || "true") === "true";
 
@@ -48,10 +51,10 @@ const DOW = ((now.getDay() + 6) % 7) + 1;
 const LOC = join(CACHE, "location.json");
 const TIM = join(CACHE, `timings-${TODAY}-m${METHOD}.json`);
 const TIM_STAMP = join(CACHE, "fetch-attempt");
-const USAGE_CACHE = join(USAGE_DIR, "statusline-usage-cache.json");
-const USAGE_STAMP = join(USAGE_DIR, "statusline-fetch-attempt");
-const RATELIMIT_STAMP = join(USAGE_DIR, "statusline-ratelimited");
-const USAGE_LOCK = join(USAGE_DIR, "statusline-fetch.lock");
+const USAGE_CACHE = join(USAGE_DIR, `statusline-usage-cache-${ACCOUNT}.json`);
+const USAGE_STAMP = join(USAGE_DIR, `statusline-fetch-attempt-${ACCOUNT}`);
+const RATELIMIT_STAMP = join(USAGE_DIR, `statusline-ratelimited-${ACCOUNT}`);
+const USAGE_LOCK = join(USAGE_DIR, `statusline-fetch-${ACCOUNT}.lock`);
 
 const mtime = (p: string) => { try { return Math.floor(statSync(p).mtimeMs / 1000); } catch { return 0; } };
 const readText = (p: string) => { try { return readFileSync(p, "utf8"); } catch { return ""; } };
@@ -87,7 +90,7 @@ function oauthToken(): string {
     const r = spawnSync("security", ["find-generic-password", "-s", "Claude Code-credentials", "-w"], { encoding: "utf8", timeout: 2000 });
     try { const t = JSON.parse(r.stdout || "")?.claudeAiOauth?.accessToken; if (t) return t; } catch {}
   }
-  const t = readJson(join(HOME, ".claude", ".credentials.json"))?.claudeAiOauth?.accessToken;
+  const t = readJson(join(CONFIG_DIR, ".credentials.json"))?.claudeAiOauth?.accessToken;
   if (t) return t;
   if (process.platform === "linux") {
     const r = spawnSync("secret-tool", ["lookup", "service", "Claude Code-credentials"], { encoding: "utf8", timeout: 2000 });
